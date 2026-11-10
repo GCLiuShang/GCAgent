@@ -1,0 +1,15 @@
+GCAgent includes code adapted from:
+
+- KernelSU (https://github.com/tiann/KernelSU), GPL-3.0. The liquid/glass
+  primitives under app/src/main/kotlin/com/gcagent/ui/liquid and
+  ui/animation, and the bottom-bar interaction approach, are derived from
+  KernelSU's manager UI. This is why the combined work is distributed under
+  GPL-3.0; see LICENSE.
+- compose-miuix-ui (https://github.com/miuix-kotlin-multiplatform/compose-miuix-ui),
+  Apache License 2.0; backdrop/blur primitives.
+- Kyant0/AndroidLiquidGlass (https://github.com/Kyant0/AndroidLiquidGlass),
+  Apache License 2.0; liquid-glass lens/refraction approach.
+
+The Apache License 2.0 text is included as LICENSE-APACHE-2.0. If you need a
+non-GPL distribution, the KernelSU-derived files must be replaced with an
+independent implementation.

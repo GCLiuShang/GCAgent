@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>3D 图标 - 自动化截帧版 (含滑翔推进)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; transition: background-color 0.2s; }
+        #info { 
+            position: absolute; top: 15px; left: 15px; color: #eee; background: rgba(0, 0, 0, 0.6); 
+            padding: 15px; border-radius: 8px; font-size: 13px; line-height: 1.6; z-index: 10; pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        #info h3 { margin: 0 0 10px 0; font-size: 15px; color: #88bbff; }
+        #info span { color: #aaa; }
+        .lil-gui { top: 15px; right: 15px; max-height: 95vh; overflow-y: auto; transition: opacity 0.3s; }
+        
+        /* 导出模式：隐藏所有UI */
+        body.export-mode #info, body.export-mode .lil-gui { 
+            display: none !important; 
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "lil-gui": "https://unpkg.com/lil-gui@0.19.1/dist/lil-gui.esm.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="info">
+        <h3>操作说明</h3>
+        <span>鼠标左键</span>: 旋转<br>
+        <span>鼠标右键</span>: 平移<br>
+        <span>方向键</span>: 摄像机平移<br>
+        <span>Ctrl + ↑ ↓</span>: 摄像机前后推拉<br>
+        <span style="color: #ff6666;">注意：为保证对称，X轴已锁定为 0</span>
+    </div>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+        import GUI from 'lil-gui';
+        
+        import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+        import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+
+        // ================= 可调参数 =================
+        const params = {
+            doorR: 600,           
+            openAngle: 25,        
+            openAngleFinal: 60,   
+            doorThickness: 200,    
+            doorOpacity: 0.3,      
+            slitRadius: 30,        
+            slitDepth: -200,         
+            blueGlowIntensity: 2,  
+            whiteGlowIntensity: 6, 
+            textGlowIntensity: 4,  
+            bloomStrength: 0.5,   
+            bloomRadius: 0.1,     
+            bloomThreshold: 0.7,
+            
+            aSizeScale: 1.2,       
+            gentSizeScale: 1.4,    
+            gentSpacing: 0.2,      
+            
+            camX: 0, 
+            camY: 422,
+            camZ: -1921,
+            camPitch: -13.66,
+            camYaw: 180.0, 
+            
+            playAnim: () => { startAnimation(); },
+            resetAnim: () => { resetAnimation(); },
+            exportPNG: () => { downloadPNG(); }
+        };
+
+        // ================= 动画状态 =================
+        let animState = 'IDLE'; 
+        let animTime = 0;
+        let isExternalControl = false; 
+        let initialCamZ = params.camZ; // 记录初始摄像机Z轴
+        let initialCamY = params.camY; // 记录初始摄像机Y轴（用于阶段4滑翔）
+
+        const animTargets = {
+            arcsL: [], arcsR: [], midLines: [], bars: [],
+            textGent: null, textA: null, slitMesh: null, pivots: []
+        };
+
+        // ================= 初始化 =================
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x000000);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 200000);
+        camera.position.set(0, params.camY, params.camZ); 
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); 
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.NoToneMapping; 
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 0, 0);
+        controls.update();
+
+        // ================= 光源 =================
+        const ambientLight = new THREE.AmbientLight(0x223355, 2.0); 
+        scene.add(ambientLight);
+
+        const fillLight = new THREE.DirectionalLight(0x88bbff, 2.0);
+        fillLight.position.set(0, 0, 3000); 
+        scene.add(fillLight);
+        
+        const dirLight = new THREE.DirectionalLight(0xffffff, 2.0); 
+        dirLight.position.set(-1500, 2000, -3000); 
+        dirLight.castShadow = true;
+        scene.add(dirLight);
+
+        // ================= 材质 =================
+        const doorMat = new THREE.MeshPhysicalMaterial({ 
+            color: 0x0A1A3A, metalness: 1.0, roughness: 0.1, transparent: true,
+            opacity: params.doorOpacity, transmission: 0.9, side: THREE.DoubleSide, depthWrite: false 
+        });
+
+        const blueMats = [
+            new THREE.MeshBasicMaterial({ depthTest: false }), 
+            new THREE.MeshBasicMaterial({ depthTest: false }), 
+            new THREE.MeshBasicMaterial({ depthTest: false })
+        ];
+        const slitMat = new THREE.MeshBasicMaterial({ depthTest: false });
+        const textMatA = new THREE.MeshBasicMaterial({ depthTest: false, side: THREE.DoubleSide, transparent: true });
+        const textMatGent = new THREE.MeshBasicMaterial({ depthTest: false, side: THREE.DoubleSide, transparent: true });
+
+        function updateColors() {
+            const b = params.blueGlowIntensity;
+            blueMats[0].color.setRGB(b * 0.1, b * 0.3, b * 0.8);
+            blueMats[1].color.setRGB(b * 0.3, b * 0.8, b * 1.8);
+            blueMats[2].color.setRGB(b * 0.5, b * 1.5, b * 3.5);
+
+            const w = params.whiteGlowIntensity;
+            slitMat.color.setRGB(w, w, w);
+
+            const t = params.textGlowIntensity;
+            textMatA.color.setRGB(t, t * 0.1, t * 0.1);
+            textMatGent.color.setRGB(t * 0.1, t * 0.4, t * 1.2);
+        }
+        updateColors();
+
+        // ================= 中缝白光 =================
+        const slitGeom = new THREE.CylinderGeometry(1, 1, 20000, 16);
+        animTargets.slitMesh = new THREE.Mesh(slitGeom, slitMat);
+        scene.add(animTargets.slitMesh);
+
+        // ================= 构建门与文字 =================
+        let loadedFont = null;
+
+        const loader = new FontLoader();
+        loader.load('https://unpkg.com/three@0.160.0/examples/fonts/helvetiker_regular.typeface.json', function (font) {
+            loadedFont = font;
+            rebuildDoors(); 
+            resetAnimation();
+        });
+
+        function rebuildDoors() {
+            animTargets.pivots.forEach(p => scene.remove(p.pivot));
+            animTargets.pivots = [];
+            animTargets.arcsL = [];
+            animTargets.arcsR = [];
+            animTargets.midLines = [];
+            animTargets.bars = [];
+
+            const R = params.doorR;
+            const T = params.doorThickness;
+            const angle = THREE.MathUtils.degToRad(params.openAngle);
+
+            const tubeRadius = 4.0; 
+            const zLayers = [-T/2, 0, T/2];
+            const inset = 0.5; 
+
+            function createDoor(isLeft) {
+                const shape = new THREE.Shape();
+                const sign = isLeft ? -1 : 1;
+                shape.absarc(0, 0, R, Math.PI/2, Math.PI*1.5, isLeft ? false : true);
+
+                const geom = new THREE.ExtrudeGeometry(shape, { depth: T, bevelEnabled: false, steps: 1 });
+                const mesh = new THREE.Mesh(geom, doorMat);
+                mesh.position.z = -T/2;
+                mesh.castShadow = true;
+
+                zLayers.forEach((zPos, index) => {
+                    const mat = blueMats[index];
+
+                    if (!isLeft) {
+                        const midLineGeom = new THREE.CylinderGeometry(tubeRadius, tubeRadius, R, 16); 
+                        const midLineMesh = new THREE.Mesh(midLineGeom, mat);
+                        midLineMesh.position.set(sign * (tubeRadius + inset), -R/2, zPos); 
+                        mesh.add(midLineMesh);
+                        animTargets.midLines.push(midLineMesh);
+                    }
+
+                    const curvePoints = [];
+                    for (let i = 0; i <= 128; i++) {
+                        const phi = isLeft ? (Math.PI/2 + Math.PI * (i / 128)) : (Math.PI/2 - Math.PI * (i / 128));
+                        const rInner = R - tubeRadius - inset;
+                        curvePoints.push(new THREE.Vector3(rInner * Math.cos(phi), rInner * Math.sin(phi), zPos));
+                    }
+                    const curve = new THREE.CatmullRomCurve3(curvePoints);
+                    const tubeGeom = new THREE.TubeGeometry(curve, 128, tubeRadius, 16, false);
+                    const tubeMesh = new THREE.Mesh(tubeGeom, mat);
+                    mesh.add(tubeMesh);
+                    
+                    if (isLeft) animTargets.arcsL.push(tubeMesh);
+                    else animTargets.arcsR.push(tubeMesh);
+
+                    if (!isLeft) {
+                        const barLength = R * 3 / 5; 
+                        const barStartX = (tubeRadius + inset);
+                        const barGeom = new THREE.CylinderGeometry(tubeRadius, tubeRadius, barLength, 16);
+                        barGeom.translate(0, barLength / 2, 0); 
+                        barGeom.rotateZ(-Math.PI / 2); 
+                        
+                        const barMesh = new THREE.Mesh(barGeom, mat);
+                        barMesh.position.set(barStartX, 0, zPos);
+                        mesh.add(barMesh);
+                        animTargets.bars.push(barMesh);
+                    }
+                });
+
+                if (loadedFont) {
+                    if (isLeft) {
+                        const size = (R / 8) * params.gentSizeScale;
+                        const letterSpacing = size * params.gentSpacing;
+                        const textGroup = new THREE.Group();
+                        let currentX = 0;
+
+                        for (let i = 0; i < 'gent'.length; i++) {
+                            const char = 'gent'[i];
+                            const shapes = loadedFont.generateShapes(char, size);
+                            const geo = new THREE.ShapeGeometry(shapes);
+                            geo.computeBoundingBox();
+                            const w = geo.boundingBox.max.x - geo.boundingBox.min.x;
+                            
+                            const m = new THREE.Mesh(geo, textMatGent);
+                            m.scale.set(-1, 1, 1); 
+                            m.position.x = currentX;
+                            textGroup.add(m);
+                            currentX -= (w + letterSpacing);
+                        }
+                        const totalWidth = Math.abs(currentX) - letterSpacing;
+                        textGroup.position.set(-R/2 + totalWidth / 2, -size/2, 2);
+                        mesh.add(textGroup);
+                        animTargets.textGent = textGroup;
+                    } else {
+                        const aDepth = 20; 
+                        const size = ((R / 4) * 1.5) * params.aSizeScale; 
+                        const textGeo = new TextGeometry('A', {
+                            font: loadedFont, size: size, depth: aDepth, curveSegments: 12, bevelEnabled: false
+                        });
+                        textGeo.computeBoundingBox();
+                        const box = textGeo.boundingBox;
+                        const margin = R * 0.1; 
+                        const textMesh = new THREE.Mesh(textGeo, textMatA);
+                        textMesh.position.set(margin - box.min.x, margin - box.min.y, 2 - aDepth / 2);
+                        mesh.add(textMesh);
+                        animTargets.textA = textMesh;
+                    }
+                }
+
+                const pivot = new THREE.Group();
+                if (isLeft) {
+                    pivot.position.set(-R, 0, 0); 
+                    mesh.position.x = R; 
+                    pivot.add(mesh);
+                    pivot.rotation.y = angle;
+                } else {
+                    pivot.position.set(R, 0, 0); 
+                    mesh.position.x = -R; 
+                    pivot.add(mesh);
+                    pivot.rotation.y = -angle;
+                }
+                scene.add(pivot);
+                animTargets.pivots.push({ pivot, isLeft: isLeft, targetAngle: isLeft ? angle : -angle });
+            }
+            createDoor(true);
+            createDoor(false);
+        }
+
+        // ================= 动画逻辑 =================
+        function startAnimation() {
+            if (isExternalControl) return;
+            resetAnimation();
+            animState = 'PLAYING';
+            animTime = 0;
+        }
+
+        function resetAnimation() {
+            if (isExternalControl) return;
+            animState = 'IDLE';
+            animTime = 0;
+            
+            // 恢复相机与背景色
+            camera.position.x = 0;
+            camera.position.y = initialCamY;
+            camera.position.z = initialCamZ;
+            controls.target.set(0, 0, 0);
+            controls.update();
+            document.body.style.backgroundColor = '#000000';
+
+            animTargets.arcsL.forEach(m => m.geometry.setDrawRange(0, 0));
+            animTargets.arcsR.forEach(m => m.geometry.setDrawRange(0, 0));
+
+            animTargets.midLines.forEach(m => {
+                m.visible = false;
+                m.scale.y = 0.001;
+                m.position.y = -params.doorR;
+            });
+
+            animTargets.bars.forEach(m => {
+                m.visible = false;
+                m.scale.x = 0.001;
+            });
+
+            if (animTargets.textGent) animTargets.textGent.children.forEach(c => c.material.opacity = 0);
+            if (animTargets.textA) animTargets.textA.material.opacity = 0;
+
+            animTargets.pivots.forEach(item => {
+                item.pivot.rotation.y = 0;
+            });
+            if (animTargets.slitMesh) {
+                animTargets.slitMesh.scale.set(0.001, 1, 0.001);
+                animTargets.slitMesh.position.z = params.slitDepth;
+            }
+        }
+
+        // ================= 核心：接受绝对时间并更新状态 =================
+        function updateAnimationAtTime(time) {
+            const R = params.doorR;
+            const T = params.doorThickness;
+            const totalArcIndices = 12288;
+            
+            // --- 阶段 1.1: 外圈半圆弧生长 (0s -> 1.0s) ---
+            if (time >= 0 && time < 1.0) {
+                const p = time / 1.0;
+                const count = Math.floor((totalArcIndices * p) / 96) * 96;
+                animTargets.arcsL.forEach(m => m.geometry.setDrawRange(0, count));
+                animTargets.arcsR.forEach(m => m.geometry.setDrawRange(0, count));
+            } else if (time >= 1.0) {
+                animTargets.arcsL.forEach(m => m.geometry.setDrawRange(0, Infinity));
+                animTargets.arcsR.forEach(m => m.geometry.setDrawRange(0, Infinity));
+            } else {
+                animTargets.arcsL.forEach(m => m.geometry.setDrawRange(0, 0));
+                animTargets.arcsR.forEach(m => m.geometry.setDrawRange(0, 0));
+            }
+
+            // --- 阶段 1.2: 中缝竖线从下到上 (1.0s -> 1.5s) ---
+            if (time >= 1.0 && time < 1.5) {
+                const p = (time - 1.0) / 0.5;
+                animTargets.midLines.forEach(m => {
+                    m.visible = true;
+                    m.scale.y = p;
+                    m.position.y = -R + (R * p) / 2;
+                });
+            } else if (time >= 1.5) {
+                animTargets.midLines.forEach(m => {
+                    m.visible = true;
+                    m.scale.y = 1;
+                    m.position.y = -R/2;
+                });
+            } else {
+                animTargets.midLines.forEach(m => { m.visible = false; });
+            }
+
+            // --- 阶段 1.3: 短横线从中间向边缘生长 (1.5s -> 2.0s) ---
+            if (time >= 1.5 && time < 2.0) {
+                const p = (time - 1.5) / 0.5;
+                animTargets.bars.forEach(m => {
+                    m.visible = true;
+                    m.scale.x = p;
+                });
+            } else if (time >= 2.0) {
+                animTargets.bars.forEach(m => {
+                    m.visible = true;
+                    m.scale.x = 1;
+                });
+            } else {
+                animTargets.bars.forEach(m => { m.visible = false; });
+            }
+
+            // --- 阶段 2.1: A 文字渐亮 (2.0s -> 2.8s) ---
+            if (time >= 2.0 && time < 2.8) {
+                const p = (time - 2.0) / 0.8; 
+                if (animTargets.textA) animTargets.textA.material.opacity = p;
+            } else if (time >= 2.8) {
+                if (animTargets.textA) animTargets.textA.material.opacity = 1;
+            } else {
+                if (animTargets.textA) animTargets.textA.material.opacity = 0;
+            }
+
+            // --- 阶段 2.2: gent 文字渐亮 (2.8s -> 3.6s) ---
+            if (time >= 2.8 && time < 3.6) {
+                const p = (time - 2.8) / 0.8; 
+                if (animTargets.textGent) animTargets.textGent.children.forEach(c => c.material.opacity = p);
+            } else if (time >= 3.6) {
+                if (animTargets.textGent) animTargets.textGent.children.forEach(c => c.material.opacity = 1);
+            } else {
+                if (animTargets.textGent) animTargets.textGent.children.forEach(c => c.material.opacity = 0);
+            }
+
+            // --- 阶段 3: 开门 + 白光出现 (3.6s -> 4.6s) ---
+            if (time >= 3.6 && time < 4.6) {
+                const p = (time - 3.6) / 1.0;
+                animTargets.pivots.forEach(item => {
+                    item.pivot.rotation.y = item.targetAngle * p;
+                });
+                if (animTargets.slitMesh) {
+                    const currentRadius = params.slitRadius * p;
+                    animTargets.slitMesh.scale.set(currentRadius, 1, currentRadius);
+                }
+            } else if (time >= 4.6) {
+                animTargets.pivots.forEach(item => {
+                    item.pivot.rotation.y = item.targetAngle;
+                });
+                if (animTargets.slitMesh) {
+                    animTargets.slitMesh.scale.set(params.slitRadius, 1, params.slitRadius);
+                }
+            } else {
+                animTargets.pivots.forEach(item => {
+                    item.pivot.rotation.y = 0;
+                });
+                if (animTargets.slitMesh) {
+                    animTargets.slitMesh.scale.set(0.001, 1, 0.001);
+                    animTargets.slitMesh.position.z = params.slitDepth;
+                }
+            }
+
+            // ========================================================
+            // --- 阶段 4: 摄像机推进 + 动态下沉 + 光芒吞噬 (4.6s -> 6.0s) ---
+            // ========================================================
+            if (time >= 4.6) {
+                const p4 = Math.min((time - 4.6) / 1.4, 1.0); 
+                const easeP = p4 * p4; // 加速逼近
+
+                const angle0 = THREE.MathUtils.degToRad(params.openAngle);
+                const angle1 = THREE.MathUtils.degToRad(params.openAngleFinal);
+                const currentTheta = angle0 + (angle1 - angle0) * p4;
+
+                // 1. 更新门的旋转角度
+                animTargets.pivots.forEach(item => {
+                    const currentAngle = p4 < 1.0 ? currentTheta : angle1;
+                    item.pivot.rotation.y = item.isLeft ? currentAngle : -currentAngle;
+                });
+
+                // 2. 物理级透视绑定：计算光带匹配位置
+                const targetRadius = R * (1 - Math.cos(currentTheta));
+                const targetZ = -R * Math.sin(currentTheta);
+                
+                const smoothF = p4 * p4 * (3 - 2 * p4);
+                const currentR = params.slitRadius + (targetRadius - params.slitRadius) * smoothF;
+                const currentZ = params.slitDepth + (targetZ - params.slitDepth) * smoothF;
+
+                if (animTargets.slitMesh) {
+                    animTargets.slitMesh.scale.set(currentR, 1, currentR);
+                    animTargets.slitMesh.position.z = currentZ;
+                }
+
+                // 3. 摄像机平滑推进与动态下沉
+                const zNear = targetZ - T * Math.cos(currentTheta);
+                const finalCamZ = zNear - 20; 
+                
+                // 最终目标高度：光带中心（也就是原点 Y=0）
+                const targetCenterY = 0; 
+                
+                // Z 轴推进
+                camera.position.z = initialCamZ + (finalCamZ - initialCamZ) * easeP;
+                
+                // Y 轴平滑下沉（消除竖屏下的高俯视）
+                camera.position.y = initialCamY + (targetCenterY - initialCamY) * easeP;
+                
+                // 保持看向原点，但利用相机Y轴降低来改变视线倾角，最终实现平视
+                controls.target.set(0, 0, 0);
+                
+                camera.updateMatrixWorld();
+                controls.update();
+
+                // 4. 结尾保险：背景全白覆盖
+                if (time > 5.8 || p4 > 0.98) {
+                    document.body.style.backgroundColor = '#FFFFFF';
+                } else {
+                    document.body.style.backgroundColor = '#000000';
+                }
+            } else {
+                document.body.style.backgroundColor = '#000000';
+            }
+        }
+
+        // ================= 外部控制接口 =================
+        window.renderAtTime = (timeInSeconds) => {
+            isExternalControl = true;
+            updateAnimationAtTime(timeInSeconds);
+            composer.render();
+        };
+
+        window.setCameraForResolution = (targetW, targetH) => {
+            const ratio = 1024.0 / (targetW * 0.4);
+            
+            camera.position.x = 0;
+            camera.position.y = 422 * ratio;
+            camera.position.z = -1921 * ratio;
+            
+            initialCamZ = camera.position.z; 
+            initialCamY = camera.position.y; // 【记录初始Y】
+            
+            camera.aspect = targetW / targetH;
+            camera.updateProjectionMatrix();
+            
+            controls.target.set(0, 0, 0);
+            controls.update();
+        };
+
+        window.enableExportMode = () => {
+            document.body.classList.add('export-mode');
+        };
+
+        // ================= 键盘控制与后期 =================
+        const keyState = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, Ctrl: false };
+        const moveSpeed = 15;
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key in keyState) keyState[e.key] = true;
+            if (e.ctrlKey) keyState.Ctrl = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.key in keyState) keyState[e.key] = false;
+            if (!e.ctrlKey) keyState.Ctrl = false;
+        });
+
+        const renderTarget = new THREE.WebGLRenderTarget(
+            window.innerWidth, window.innerHeight, 
+            { samples: 4, type: THREE.HalfFloatType }
+        );
+        const composer = new EffectComposer(renderer, renderTarget);
+        composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        const renderPass = new RenderPass(scene, camera);
+        composer.addPass(renderPass);
+
+        const bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            params.bloomStrength, params.bloomRadius, params.bloomThreshold   
+        );
+        composer.addPass(bloomPass);
+
+        const outputPass = new OutputPass();
+        composer.addPass(outputPass);
+
+        function downloadPNG() {
+            const originalW = window.innerWidth;
+            const originalH = window.innerHeight;
+            const originalAspect = camera.aspect;
+
+            renderer.setSize(1024, 1024);
+            composer.setSize(1024, 1024);
+            camera.aspect = 1;
+            camera.updateProjectionMatrix();
+
+            composer.render();
+
+            const link = document.createElement('a');
+            link.download = 'icon_1024.png';
+            link.href = renderer.domElement.toDataURL('image/png');
+            link.click();
+
+            renderer.setSize(originalW, originalH);
+            composer.setSize(originalW, originalH);
+            camera.aspect = originalAspect;
+            camera.updateProjectionMatrix();
+            composer.render();
+        }
+
+        // ================= GUI =================
+        const gui = new GUI({ title: '参数调节' });
+        
+        const animFolder = gui.addFolder('动画控制');
+        animFolder.add(params, 'playAnim').name('▶ 播放动画');
+        animFolder.add(params, 'resetAnim').name('⏹ 重置 (恢复全黑)');
+
+        gui.add(params, 'doorR', 400, 1500, 10).name('圆弧半径').onChange(() => { rebuildDoors(); resetAnimation(); });
+        gui.add(params, 'openAngle', 5, 60, 1).name('开门角度').onChange(() => { rebuildDoors(); resetAnimation(); });
+        gui.add(params, 'openAngleFinal', 25, 90, 1).name('最终开门角度').onChange(() => { rebuildDoors(); resetAnimation(); });
+        gui.add(params, 'doorThickness', 20, 300, 5).name('门板厚度').onChange(() => { rebuildDoors(); resetAnimation(); });
+        gui.add(params, 'doorOpacity', 0.0, 1.0, 0.05).name('门板透明度').onChange(val => {
+            doorMat.opacity = val;
+        });
+
+        gui.add(params, 'slitRadius', 0.5, 50, 0.1).name('白光粗细').onChange(val => {
+            if (animState === 'DONE') animTargets.slitMesh.scale.set(val, 1, val);
+        });
+        gui.add(params, 'slitDepth', -2000, 1000, 10).name('白光深度(Z)').onChange(val => {
+            animTargets.slitMesh.position.z = val;
+        });
+
+        gui.add(params, 'blueGlowIntensity', 0, 10, 0.1).name('蓝光泛光强度').onChange(updateColors);
+        gui.add(params, 'whiteGlowIntensity', 0, 15, 0.1).name('白光泛光强度').onChange(updateColors);
+        gui.add(params, 'textGlowIntensity', 0, 15, 0.1).name('文字泛光强度').onChange(updateColors);
+
+        gui.add(params, 'bloomStrength', 0, 5, 0.1).name('全局泛光权重').onChange(val => {
+            bloomPass.strength = val;
+        });
+        gui.add(params, 'bloomRadius', 0, 2, 0.1).name('泛光半径').onChange(val => {
+            bloomPass.radius = val;
+        });
+        gui.add(params, 'bloomThreshold', 0, 3, 0.1).name('泛光阈值').onChange(val => {
+            bloomPass.threshold = val;
+        });
+
+        const textFolder = gui.addFolder('文字调节');
+        textFolder.add(params, 'aSizeScale', 0.5, 3.0, 0.1).name('A 字号缩放').onChange(() => { rebuildDoors(); resetAnimation(); });
+        textFolder.add(params, 'gentSizeScale', 0.5, 3.0, 0.1).name('gent 字号缩放').onChange(() => { rebuildDoors(); resetAnimation(); });
+        textFolder.add(params, 'gentSpacing', -0.5, 2.0, 0.05).name('gent 字间距').onChange(() => { rebuildDoors(); resetAnimation(); });
+
+        const camFolder = gui.addFolder('摄像机位置 (对称锁定)');
+        camFolder.add(params, 'camX').name('X (已固定)').disable(); 
+        camFolder.add(params, 'camY', -2000, 2000, 1).name('Y').listen().onChange(updateCameraFromUI);
+        camFolder.add(params, 'camZ', -3000, 1000, 1).name('Z').listen().onChange(updateCameraFromUI);
+        camFolder.add(params, 'camPitch', -90, 90, 0.1).name('Pitch(俯仰)').listen().onChange(updateCameraFromUI);
+        camFolder.add(params, 'camYaw').name('Yaw (已固定)').disable(); 
+        
+        gui.add(params, 'exportPNG').name('导出 1024x1024 PNG');
+
+        function updateCameraFromUI() {
+            camera.position.x = 0;
+            camera.position.y = params.camY;
+            camera.position.z = params.camZ;
+            controls.target.set(0, 0, 0);
+            controls.update();
+        }
+
+        // ================= 渲染循环 (本地测试用) =================
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = clock.getDelta();
+
+            if (!isExternalControl) {
+                if (animState === 'PLAYING') {
+                    animTime += dt;
+                    updateAnimationAtTime(animTime);
+                    
+                    if (animTime >= 6.0) { 
+                        animState = 'DONE';
+                    }
+                }
+                
+                const dir = new THREE.Vector3();
+                camera.getWorldDirection(dir);
+                const right = new THREE.Vector3().crossVectors(dir, camera.up).normalize();
+                const up = new THREE.Vector3(0, 1, 0);
+                
+                let moveVec = new THREE.Vector3(0,0,0);
+                if (keyState.ArrowLeft)  moveVec.addScaledVector(right, -moveSpeed);
+                if (keyState.ArrowRight) moveVec.addScaledVector(right,  moveSpeed);
+                if (keyState.ArrowUp)    moveVec.addScaledVector(up,     moveSpeed);
+                if (keyState.ArrowDown)  moveVec.addScaledVector(up,    -moveSpeed);
+                
+                if (keyState.Ctrl) {
+                    if (keyState.ArrowUp)   moveVec.addScaledVector(dir,  moveSpeed);
+                    if (keyState.ArrowDown) moveVec.addScaledVector(dir, -moveSpeed);
+                }
+
+                if (moveVec.lengthSq() > 0) {
+                    camera.position.add(moveVec);
+                    controls.target.add(moveVec);
+                }
+
+                camera.position.x = 0;
+                controls.target.x = 0;
+                controls.update();
+                
+                composer.render();
+
+                params.camY = camera.position.y;
+                params.camZ = camera.position.z;
+                const targetDir = new THREE.Vector3().subVectors(controls.target, camera.position).normalize();
+                params.camPitch = Math.asin(targetDir.y) * 180 / Math.PI;
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>

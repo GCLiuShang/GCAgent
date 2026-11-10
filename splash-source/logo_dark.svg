@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 400" width="1080" height="400">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@400..800&amp;display=swap');
+    .brand { font-family: 'Baloo 2', ui-rounded, 'Arial Rounded MT Bold', system-ui, sans-serif; }
+  </style>
+
+  <defs>
+    <linearGradient id="lineGrad" gradientUnits="userSpaceOnUse" x1="92" y1="0" x2="394" y2="0">
+      <stop offset="0%"   stop-color="#3DF2FF"/>
+      <stop offset="50%"  stop-color="#7C8CFF"/>
+      <stop offset="100%" stop-color="#C084FC"/>
+    </linearGradient>
+    <linearGradient id="aGrad" gradientUnits="userSpaceOnUse" x1="338" y1="0" x2="535" y2="0">
+      <stop offset="0%"   stop-color="#FF6B5B"/>
+      <stop offset="50%"  stop-color="#F0427E"/>
+      <stop offset="100%" stop-color="#C084FC"/>
+    </linearGradient>
+  </defs>
+
+  <g stroke="url(#lineGrad)" stroke-width="28" stroke-linecap="round" fill="none" opacity="0.9">
+    <path d="M 180 136 A 73.75 73.75 0 0 0 180 283.5"/>
+    <line x1="180" y1="209.75" x2="180" y2="283.5"/>
+    <line x1="180" y1="209.75" x2="150.5" y2="209.75"/>
+    <path d="M 305.75 136 A 73.75 73.75 0 0 0 305.75 283.5"/>
+  </g>
+
+  <text class="brand" x="337.75" y="300" font-size="278" letter-spacing="0">
+    <tspan font-weight="800" fill="url(#aGrad)">A</tspan><tspan font-weight="600" fill="#F8FAFC" fill-opacity="0.62" font-size="220">gent</tspan>
+  </text>
+</svg>

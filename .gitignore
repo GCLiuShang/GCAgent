@@ -1,0 +1,15 @@
+.gradle/
+**/build/
+local.properties
+*.iml
+.idea/
+*.apk
+*.idsig
+*.hprof
+splash-source/node_modules/
+splash-source/frames/
+.DS_Store
+!dist/*.apk
+
+__pycache__/
+pc/data/

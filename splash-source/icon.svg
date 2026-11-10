@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@400..800&amp;display=swap');
+    .brand { font-family: 'Baloo 2', ui-rounded, 'Arial Rounded MT Bold', system-ui, sans-serif; }
+  </style>
+
+  <defs>
+    <linearGradient id="lineGrad" gradientUnits="userSpaceOnUse" x1="112" y1="112" x2="912" y2="912">
+      <stop offset="0%"   stop-color="#3DF2FF"/>
+      <stop offset="50%"  stop-color="#7C8CFF"/>
+      <stop offset="100%" stop-color="#C084FC"/>
+    </linearGradient>
+
+    <linearGradient id="aGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"   stop-color="#FF6B5B"/>
+      <stop offset="50%"  stop-color="#F0427E"/>
+      <stop offset="100%" stop-color="#C084FC"/>
+    </linearGradient>
+
+    <radialGradient id="bgGlow" cx="50%" cy="50%" r="55%">
+      <stop offset="0%"   stop-color="#4338CA" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="#05060A"/>
+  <rect width="1024" height="1024" fill="url(#bgGlow)"/>
+
+  <!-- 无辉光：纯 stroke，边缘干净 -->
+  <g stroke="url(#lineGrad)" stroke-width="48" stroke-linecap="round" fill="none">
+    <circle cx="512" cy="512" r="400"
+            stroke-dasharray="2393 120" stroke-dashoffset="200" opacity="0.5"/>
+    <line x1="512" y1="512" x2="272" y2="512" opacity="0.9"/>
+    <line x1="512" y1="512" x2="512" y2="912" opacity="1"/>
+  </g>
+
+  <text class="brand" x="470" y="445" text-anchor="end"
+        font-weight="800" font-size="310" letter-spacing="0"
+        fill="url(#aGrad)">A</text>
+
+  <text class="brand" x="712" y="512" text-anchor="middle" dominant-baseline="central"
+        font-weight="600" font-size="130" letter-spacing="-1"
+        fill="#F8FAFC" fill-opacity="0.62">gent</text>
+</svg>
