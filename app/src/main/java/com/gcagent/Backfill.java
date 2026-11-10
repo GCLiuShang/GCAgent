@@ -81,7 +81,7 @@ public class Backfill {
         String[] lines = tail().split("\n");
         for (int i = lines.length - 1; i >= 0; i--) {
             java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("range peer=900000001 min=(\\d+)").matcher(lines[i]);
+                    .compile("range peer=\\d+ min=(\\d+)").matcher(lines[i]);
             if (m.find()) return Long.parseLong(m.group(1));
         }
         return -1;

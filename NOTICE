@@ -10,6 +10,7 @@ GCAgent includes code adapted from:
 - Kyant0/AndroidLiquidGlass (https://github.com/Kyant0/AndroidLiquidGlass),
   Apache License 2.0; liquid-glass lens/refraction approach.
 
-The Apache License 2.0 text is included as LICENSE-APACHE-2.0. If you need a
+The Apache License 2.0 text is included as LICENSE-APACHE-2.0. Three.js and
+other third-party notices are in THIRD-PARTY-NOTICES.md. If you need a
 non-GPL distribution, the KernelSU-derived files must be replaced with an
 independent implementation.
